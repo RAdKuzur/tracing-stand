@@ -6,8 +6,12 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header>
+   <header>
     <h1>Трассировка — список трейсов</h1>
+    <div class="user-box">
+      <span id="me"></span>
+      <button id="logout" type="button">Выйти</button>
+    </div>
   </header>
 
   <section class="filters">
@@ -21,14 +25,23 @@
     <label>Статус
       <select id="f-status">
         <option value="">все</option>
-        <option value="ok">OK</option>
-        <option value="error">ERROR</option>
+        <option value="OK">OK</option>
+        <option value="ERROR">ERROR</option>
       </select>
     </label>
     <label>Мин. длительность, мс
       <input id="f-min-dur" type="number" min="0" value="0">
     </label>
     <button id="btn-apply">Применить</button>
+  </section>
+
+  <section class="matrix-section">
+    <h2>Матрица обращений между сервисами</h2>
+    <p class="matrix-hint">
+      Значение в ячейке — относительная частота вызова (0–1):
+      строка вызывает столбец. 1.0 — самый частый переход.
+    </p>
+    <div id="service-matrix" class="matrix"></div>
   </section>
 
   <table id="traces">

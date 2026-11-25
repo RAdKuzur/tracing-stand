@@ -1,49 +1,260 @@
 openapi: 3.0.3
 
 info:
-  title: Trace Collector API
+  title: Distributed Tracing Stand API
   description: |
-    API сервиса распределённой трассировки (MVP). Принимает спаны в формате
-    OTLP/HTTP (JSON-представление), хранит их в SQLite, предоставляет поиск
-    по trace_id и фильтрам, журнал аудита и служебные эндпоинты
-    (healthz/readyz/metrics).
-  version: 0.1.0
+    API сервиса распределённой трассировки (MVP).
+
+    Состоит из двух уровней:
+
+    1. **trace-collector** (порт 4318) — приём OTLP/HTTP спанов (JSON),
+       хранение в SQLite, поиск по trace_id и фильтрам, журнал аудита,
+       служебные эндпоинты healthz/readyz/metrics.
+
+    2. **trace-ui** (порт 8080) — прокси с аутентификацией и RBAC.
+       Публичные эндпоинты: `/api/login`, `/api/logout`, `/api/users`.
+       Защищённые: `/api/me`, `/api/spans`, `/api/audit/logs`.
+       Коллектор не публикуется наружу — доступ только через UI.
+
+  version: 0.2.0
   contact:
     name: Tracing Stand MVP
 
 servers:
-  - url: http://localhost:4318
-    description: Локальный запуск через docker-compose
+  - url: http://localhost:8080
+    description: UI-прокси с аутентификацией (внешний доступ)
   - url: http://trace-collector:4318
-    description: Внутри сети tracing-net
+    description: Коллектор (внутри сети tracing-net)
 
 tags:
+  - name: auth
+    description: Аутентификация и RBAC (trace-ui)
+  - name: ui
+    description: Прокси к коллектору (trace-ui)
   - name: ingest
-    description: Приём телеметрии
+    description: Приём телеметрии (trace-collector)
   - name: query
-    description: Поиск и чтение спанов
+    description: Поиск и чтение спанов (trace-collector)
   - name: audit
-    description: Журнал аудита
+    description: Журнал аудита (trace-collector)
   - name: ops
-    description: Служебные эндпоинты
+    description: Служебные эндпоинты (trace-collector)
 
+# ============================================================
+# trace-ui: аутентификация
+# ============================================================
 paths:
+  /api/users:
+    get:
+      tags: [auth]
+      summary: Список предустановленных пользователей (публичный)
+      description: |
+        Возвращает список пользователей для формы логина. Пароли
+        не требуются — MVP-упрощение. Используется страницей
+        `/login.html` для заполнения выпадающего списка.
+      operationId: listUsers
+      responses:
+        '200':
+          description: Список пользователей
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+
+  /api/login:
+    post:
+      tags: [auth]
+      summary: Вход в систему по выбору пользователя
+      description: |
+        Проверяет `username` по `config/users.json`, создаёт
+        HMAC-подписанную cookie `session` (HttpOnly, SameSite=Lax,
+        TTL 8 часов). После успешного входа клиент получает cookie
+        и редиректится на `/`.
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+                  example: ivanov_sre
+      responses:
+        '200':
+          description: Успешный вход, в ответе Set-Cookie
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: session=eyJ...; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Некорректный JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Неизвестный пользователь
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/logout:
+    post:
+      tags: [auth]
+      summary: Выход (очистка cookie)
+      operationId: logout
+      responses:
+        '200':
+          description: Cookie очищена
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: session=; Path=/; Max-Age=0
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+
+  /api/me:
+    get:
+      tags: [auth]
+      summary: Текущий пользователь и его роль
+      description: |
+        Возвращает `user`, `role`, `role_label` из проверенной
+        сессии. Требует валидной cookie `session`.
+      operationId: getMe
+      responses:
+        '200':
+          description: Данные текущего пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          description: Нет или невалидная сессия
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# ============================================================
+# trace-ui: прокси к коллектору (с RBAC)
+# ============================================================
+  /api/spans:
+    get:
+      tags: [ui]
+      summary: Поиск спанов (прокси к /spans коллектора)
+      description: |
+        Проксирует запрос к `GET /spans` коллектора, добавляя
+        `X-User` и `X-Role` из проверенной сессии. Требует
+        действие `spans:read` (есть у всех ролей).
+      operationId: uiSearchSpans
+      parameters:
+        - $ref: '#/components/parameters/TraceId'
+        - $ref: '#/components/parameters/Service'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/MinDurationMs'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Список спанов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpanListResponse'
+        '401':
+          description: Нет сессии
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Роль не имеет права spans:read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Коллектор недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/audit/logs:
+    get:
+      tags: [ui]
+      summary: Журнал аудита (прокси к /audit/logs коллектора)
+      description: |
+        Доступен только ролям `ADMIN` и `AUDITOR` (действие
+        `audit:read`). Для остальных — 403.
+      operationId: uiAuditLogs
+      responses:
+        '200':
+          description: Журнал аудита
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEntry'
+        '401':
+          description: Нет сессии
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Роль не имеет права audit:read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# ============================================================
+# trace-collector: приём телеметрии
+# ============================================================
   /v1/traces:
     post:
       tags: [ingest]
       summary: Приём спана (OTLP/HTTP, JSON)
       description: |
         Принимает один спан в JSON-представлении модели OpenTelemetry.
-        Валидирует обязательные поля, длину и hex-формат `trace_id`/`span_id`,
-        заголовок `traceparent` (если передан). Применяет PII-маскирование
-        перед записью в хранилище. Дедупликация — по первичному ключу
-        `(trace_id, span_id)`.
+        Валидирует `Content-Type` (допускается `application/json`
+        с любым charset), `Content-Length` (целое, > 0, ≤ 1 МиБ),
+        обязательные поля, длину и hex-формат `trace_id`/`span_id`.
+        Применяет PII-маскирование перед записью. Дедупликация —
+        по первичному ключу `(trace_id, span_id)` в SQLite.
       operationId: ingestSpan
       parameters:
         - name: traceparent
           in: header
           required: false
-          description: W3C Trace Context заголовок (формат `00-<32hex>-<16hex>-<2hex>`)
+          description: |
+            W3C Trace Context заголовок. Формат:
+            `00-<32hex>-<16hex>-<2hex>`.
           schema:
             type: string
             pattern: '^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'
@@ -56,7 +267,7 @@ paths:
               $ref: '#/components/schemas/Span'
       responses:
         '200':
-          description: Спан принят или уже существует (дедупликация)
+          description: Спан принят или уже существует
           content:
             application/json:
               schema:
@@ -65,75 +276,40 @@ paths:
                   status:
                     type: string
                     enum: [ok, duplicate]
-              example:
-                status: ok
+                    example: ok
         '400':
-          description: Некорректный спан или невалидный traceparent
+          description: Некорректный спан, Content-Length или traceparent
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                error: 'trace_id must be 32 hex chars'
-        '404':
-          description: Неизвестный путь
+        '415':
+          description: Неподдерживаемый Content-Type
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+# ============================================================
+# trace-collector: поиск
+# ============================================================
   /spans:
     get:
       tags: [query]
-      summary: Поиск спанов с фильтрами
+      summary: Поиск спанов
       description: |
-        Возвращает список спанов, удовлетворяющих фильтрам. Если передан
-        `trace_id` — возвращает все спаны трейса (без применения `limit`,
-        до 100 000 записей). Иначе — применяет фильтры `service`, `status`,
-        `min_duration_ms` и `limit`. В ответе всегда есть поле `truncated`,
-        сигнализирующее об усечении выборки.
+        Если передан `trace_id` — возвращает все спаны трейса
+        (без применения `limit`, до 100 000 записей).
+        Иначе — фильтрует по `service`, `status`, `min_duration_ms`
+        и ограничивает `limit`. В ответе всегда есть `truncated`,
+        сигнализирующее об усечении.
       operationId: searchSpans
       parameters:
-        - name: trace_id
-          in: query
-          required: false
-          description: Идентификатор трейса (32 hex-символа)
-          schema:
-            type: string
-            pattern: '^[0-9a-f]{32}$'
-            example: 814c0dc5573cd646cdfb9f1a97a47f2c
-        - name: service
-          in: query
-          required: false
-          description: Имя сервиса
-          schema:
-            type: string
-            example: service-b
-        - name: status
-          in: query
-          required: false
-          description: Статус спана
-          schema:
-            type: string
-            enum: [OK, ERROR, UNSET]
-        - name: min_duration_ms
-          in: query
-          required: false
-          description: Минимальная длительность спана в миллисекундах
-          schema:
-            type: number
-            format: float
-            minimum: 0
-            example: 5
-        - name: limit
-          in: query
-          required: false
-          description: Максимальное количество возвращаемых спанов
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100000
-            default: 1000
+        - $ref: '#/components/parameters/TraceId'
+        - $ref: '#/components/parameters/Service'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/MinDurationMs'
+        - $ref: '#/components/parameters/Limit'
         - name: X-User
           in: header
           required: false
@@ -144,10 +320,10 @@ paths:
         - name: X-Role
           in: header
           required: false
-          description: Роль пользователя для RBAC (учитывается на /audit/logs)
+          description: Роль для RBAC (учитывается на /audit/logs и при PII-маскировании)
           schema:
             type: string
-            enum: [viewer, admin, auditor]
+            enum: [SRE, DEV, ADMIN, AUDITOR]
             default: viewer
       responses:
         '200':
@@ -157,21 +333,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/SpanListResponse'
         '400':
-          description: Некорректный параметр (например, нечисловой limit)
+          description: Некорректный параметр
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+# ============================================================
+# trace-collector: аудит
+# ============================================================
   /audit/logs:
     get:
       tags: [audit]
-      summary: Журнал аудита действий пользователей
+      summary: Журнал аудита с хеш-цепочкой
       description: |
-        Возвращает журнал аудита в формате JSONL-строк, представленных
-        массивом. Доступен только при `X-Role: admin` или `X-Role: auditor`.
-        Каждая запись содержит хеш-цепочку (`hash` = SHA-256 от
-        предыдущего хеша и полезной нагрузки) — защита от модификации.
+        Доступен только ролям `ADMIN` и `AUDITOR`. Каждая запись
+        содержит хеш-цепочку (`hash` = SHA-256 от предыдущего
+        хеша и полезной нагрузки) — защита от модификации.
       operationId: getAuditLogs
       parameters:
         - name: X-Role
@@ -179,7 +357,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [admin, auditor]
+            enum: [ADMIN, AUDITOR]
       responses:
         '200':
           description: Массив записей аудита
@@ -199,6 +377,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+# ============================================================
+# trace-collector: служебные
+# ============================================================
   /healthz:
     get:
       tags: [ops]
@@ -223,7 +404,7 @@ paths:
       operationId: readyz
       responses:
         '200':
-          description: Сервис готов принимать трафик (БД инициализирована)
+          description: Сервис готов принимать трафик
           content:
             application/json:
               schema:
@@ -250,9 +431,105 @@ paths:
                   spans_total 42
                   # TYPE spans_rejected_total counter
                   spans_rejected_total 3
+                  spans_rejected_total{reason="bad_content_type"} 1
 
+# ============================================================
+# components
+# ============================================================
 components:
+  parameters:
+    TraceId:
+      name: trace_id
+      in: query
+      required: false
+      description: Идентификатор трейса (32 hex-символа)
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{32}$'
+        example: 814c0dc5573cd646cdfb9f1a97a47f2c
+    Service:
+      name: service
+      in: query
+      required: false
+      description: Имя сервиса
+      schema:
+        type: string
+        example: service-b
+    Status:
+      name: status
+      in: query
+      required: false
+      description: Статус спана
+      schema:
+        type: string
+        enum: [OK, ERROR, UNSET]
+    MinDurationMs:
+      name: min_duration_ms
+      in: query
+      required: false
+      description: Минимальная длительность спана в миллисекундах
+      schema:
+        type: number
+        format: float
+        minimum: 0
+        example: 5
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Максимальное количество возвращаемых спанов
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100000
+        default: 1000
+
   schemas:
+    User:
+      type: object
+      properties:
+        username:
+          type: string
+          example: ivanov_sre
+        display_name:
+          type: string
+          example: Иванов (SRE)
+        role:
+          type: string
+          enum: [SRE, DEV, ADMIN, AUDITOR]
+        role_label:
+          type: string
+          example: SRE
+
+    LoginResponse:
+      type: object
+      properties:
+        user:
+          type: string
+          example: ivanov_sre
+        display_name:
+          type: string
+          example: Иванов (SRE)
+        role:
+          type: string
+          enum: [SRE, DEV, ADMIN, AUDITOR]
+        role_label:
+          type: string
+          example: SRE
+
+    MeResponse:
+      type: object
+      properties:
+        user:
+          type: string
+          example: ivanov_sre
+        role:
+          type: string
+          enum: [SRE, DEV, ADMIN, AUDITOR]
+        role_label:
+          type: string
+          example: SRE
+
     Span:
       type: object
       required: [trace_id, span_id, name, service_name]
@@ -338,10 +615,10 @@ components:
           example: 1795544130.123
         user:
           type: string
-          example: anonymous
+          example: ivanov_sre
         role:
           type: string
-          enum: [viewer, admin, auditor]
+          enum: [SRE, DEV, ADMIN, AUDITOR]
         op:
           type: string
           enum: [SEARCH, VIEW, EXPORT, CONFIG_CHANGE, PII_ACCESS]

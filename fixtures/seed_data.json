@@ -1,0 +1,158 @@
+{
+  "description": "Демонстрационные спаны для экспресс-проверки. 3 трейса: успешный, ошибочный, медленный.",
+  "spans": [
+    {
+      "trace_id": "11111111111111111111111111111111",
+      "span_id": "1111111111111111",
+      "parent_span_id": null,
+      "service_name": "service-a",
+      "name": "service-a-handler",
+      "kind": "SERVER",
+      "start_time_unix_nano": 1795500000000000000,
+      "end_time_unix_nano": 1795500000010000000,
+      "status": "OK",
+      "attributes": {"http.method": "GET", "http.path": "/"},
+      "events": [],
+      "links": []
+    },
+    {
+      "trace_id": "11111111111111111111111111111111",
+      "span_id": "2222222222222222",
+      "parent_span_id": "1111111111111111",
+      "service_name": "service-b",
+      "name": "service-b-work",
+      "kind": "SERVER",
+      "start_time_unix_nano": 1795500000002000000,
+      "end_time_unix_nano": 1795500000009000000,
+      "status": "OK",
+      "attributes": {"http.method": "GET", "http.path": "/work"},
+      "events": [],
+      "links": []
+    },
+    {
+      "trace_id": "22222222222222222222222222222222",
+      "span_id": "3333333333333333",
+      "parent_span_id": null,
+      "service_name": "service-a",
+      "name": "service-a-handler",
+      "kind": "SERVER",
+      "start_time_unix_nano": 1795500001000000000,
+      "end_time_unix_nano": 1795500001020000000,
+      "status": "ERROR",
+      "attributes": {"http.method": "POST", "http.path": "/checkout"},
+      "events": [],
+      "links": []
+    },
+    {
+      "trace_id": "22222222222222222222222222222222",
+      "span_id": "4444444444444444",
+      "parent_span_id": "3333333333333333",
+      "service_name": "service-b",
+      "name": "service-b-work",
+      "kind": "SERVER",
+      "start_time_unix_nano": 1795500001002000000,
+      "end_time_unix_nano": 1795500001015000000,
+      "status": "ERROR",
+      "attributes": {
+        "http.method": "POST",
+        "http.path": "/work",
+        "error": "downstream timeout",
+        "user.email": "ivan@example.com"
+      },
+      "events": [],
+      "links": []
+    },
+    {
+      "trace_id": "33333333333333333333333333333333",
+      "span_id": "5555555555555555",
+      "parent_span_id": null,
+      "service_name": "service-a",
+      "name": "service-a-handler",
+      "kind": "SERVER",
+      "start_time_unix_nano": 1795500002000000000,
+      "end_time_unix_nano": 1795500002150000000,
+      "status": "OK",
+      "attributes": {"http.method": "GET", "http.path": "/slow"},
+      "events": [],
+      "links": []
+    },
+    {
+      "trace_id": "33333333333333333333333333333333",
+      "span_id": "6666666666666666",
+      "parent_span_id": "5555555555555555",
+      "service_name": "service-b",
+      "name": "service-b-work",
+      "kind": "SERVER",
+      "start_time_unix_nano": 1795500002003000000,
+      "end_time_unix_nano": 1795500002130000000,
+      "status": "OK",
+      "attributes": {"http.method": "GET", "http.path": "/work"},
+      "events": [],
+      "links": []
+    },
+    {
+      "trace_id": "44444444444444444444444444444444",
+      "span_id": "7777777777777777",
+      "parent_span_id": null,
+      "service_name": "service-a",
+      "name": "service-a-handler",
+      "kind": "SERVER",
+      "start_time_unix_nano": 1795500003000000000,
+      "end_time_unix_nano": 1795500003005000000,
+      "status": "OK",
+      "attributes": {"http.method": "GET", "http.path": "/"},
+      "events": [],
+      "links": []
+    },
+    {
+      "trace_id": "44444444444444444444444444444444",
+      "span_id": "8888888888888888",
+      "parent_span_id": "7777777777777777",
+      "service_name": "service-b",
+      "name": "service-b-work",
+      "kind": "SERVER",
+      "start_time_unix_nano": 1795500003001000000,
+      "end_time_unix_nano": 1795500003004000000,
+      "status": "OK",
+      "attributes": {"http.method": "GET", "http.path": "/work"},
+      "events": [],
+      "links": []
+    },
+    {
+      "trace_id": "55555555555555555555555555555555",
+      "span_id": "9999999999999999",
+      "parent_span_id": null,
+      "service_name": "payment-service",
+      "name": "payment-authorize",
+      "kind": "SERVER",
+      "start_time_unix_nano": 1795500004000000000,
+      "end_time_unix_nano": 1795500004030000000,
+      "status": "ERROR",
+      "attributes": {
+        "http.method": "POST",
+        "http.path": "/authorize",
+        "http.request.header.authorization": "Bearer secret-token",
+        "user.password": "hunter2"
+      },
+      "events": [],
+      "links": []
+    },
+    {
+      "trace_id": "55555555555555555555555555555555",
+      "span_id": "aaaaaaaaaaaaaaaa",
+      "parent_span_id": "9999999999999999",
+      "service_name": "payment-service",
+      "name": "payment-gateway-call",
+      "kind": "CLIENT",
+      "start_time_unix_nano": 1795500004001000000,
+      "end_time_unix_nano": 1795500004029000000,
+      "status": "ERROR",
+      "attributes": {
+        "peer.service": "external-gateway",
+        "error": "connection refused"
+      },
+      "events": [],
+      "links": []
+    }
+  ]
+}

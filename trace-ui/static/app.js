@@ -5,6 +5,28 @@ const api = (path) => fetch(`/api${path}`).then(r => r.json());
 // Страница списка трейсов (index.html)
 // ============================================================
 async function initList() {
+  // --- шапка: пользователь + выход ---
+  fetch("/api/me")
+    .then(r => {
+      if (r.status === 401) {
+        window.location.href = "/login.html";
+        return null;
+      }
+      return r.json();
+    })
+    .then(me => {
+      if (!me) return;
+      const el = document.getElementById("me");
+      if (el && me.user) el.textContent = `${me.user} (${me.role_label || me.role})`;
+    })
+    .catch(() => {});
+
+  const logoutBtn = document.getElementById("logout");
+  if (logoutBtn) logoutBtn.addEventListener("click", async () => {
+    await fetch("/api/logout", {method: "POST"});
+    window.location.href = "/login.html";
+  });
+
   const tbody = document.querySelector("#traces tbody");
   if (!tbody) return;
 
@@ -12,7 +34,7 @@ async function initList() {
   if (btn) btn.addEventListener("click", load);
 
   async function load() {
-    // собираем фильтры в query-string — теперь они работают server-side
+    // собираем фильтры в query-string — фильтрация server-side по трейсам
     const params = new URLSearchParams();
     const fService = document.getElementById("f-service")?.value || "";
     const fStatus  = document.getElementById("f-status")?.value  || "";
@@ -64,13 +86,84 @@ async function initList() {
       const note = document.createElement("p");
       note.id = "truncated-note";
       note.textContent =
-        `Показаны первые ${spans.length} из ${data.total} спанов. Уточните фильтры, чтобы увидеть больше.`;
+        `Показаны первые ${rows.length} из ${data.total} трейсов. Уточните фильтры, чтобы увидеть больше.`;
       note.style.cssText = "color:#e67e22; font-size:13px; margin:8px 0;";
       tbody.parentNode.insertBefore(note, tbody.nextSibling);
     }
+
+    // матрица обращений между сервисами
+    renderServiceMatrix(spans);
   }
 
   await load();
+}
+
+// ============================================================
+// Матрица обращений между сервисами (0..1)
+// ============================================================
+function renderServiceMatrix(spans) {
+  const container = document.getElementById("service-matrix");
+  if (!container) return;
+
+  // 1) собираем все сервисы
+  const services = Array.from(new Set(spans.map(s => s.service_name))).sort();
+  if (services.length === 0) {
+    container.innerHTML = '<div class="matrix-hint">Нет данных</div>';
+    return;
+  }
+
+  // 2) индексируем спаны по span_id, чтобы найти родителя
+  const byId = new Map(spans.map(s => [s.span_id, s]));
+
+  // 3) считаем переходы parent.service -> child.service
+  const counts = new Map(); // "a|b" -> count
+  for (const s of spans) {
+    if (!s.parent_span_id) continue;
+    const parent = byId.get(s.parent_span_id);
+    if (!parent) continue;
+    if (parent.service_name === s.service_name) continue; // self не считаем
+    const key = `${parent.service_name}|${s.service_name}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  // 4) нормируем по максимуму
+  const max = Math.max(1, ...counts.values());
+
+  // 5) строим HTML-таблицу
+  const n = services.length;
+  const cellSize = 80;
+  container.style.gridTemplateColumns = `120px repeat(${n}, ${cellSize}px)`;
+
+  const parts = [];
+
+  // заголовок: пустой угол + имена столбцов
+  parts.push('<div class="cell corner"></div>');
+  for (const svc of services) {
+    parts.push(`<div class="cell header">${svc}</div>`);
+  }
+
+  // строки
+  for (const from of services) {
+    parts.push(`<div class="cell header">${from}</div>`);
+    for (const to of services) {
+      if (from === to) {
+        parts.push('<div class="cell self">—</div>');
+        continue;
+      }
+      const raw = counts.get(`${from}|${to}`) || 0;
+      const value = raw === 0 ? 0 : raw / max;
+      const alpha = value === 0 ? 0 : 0.15 + 0.75 * value;
+      const bg = value === 0
+        ? ""
+        : `style="background: rgba(37,99,235,${alpha.toFixed(3)}); color:${value > 0.6 ? "#fff" : "#1a1a1a"}"`;
+      parts.push(
+        `<div class="cell value-${value === 0 ? "0" : "n"}" ${bg} title="${from} → ${to}: ${raw}">` +
+        `${value.toFixed(2)}</div>`
+      );
+    }
+  }
+
+  container.innerHTML = parts.join("");
 }
 
 // ============================================================

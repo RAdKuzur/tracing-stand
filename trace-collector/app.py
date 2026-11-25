@@ -1,4 +1,4 @@
-"""HTTP-сервер OTLP-коллектора на :4318 (с healthz, metrics, audit, RBAC)."""
+"""HTTP-сервер OTLP-коллектора на :4318 (healthz, metrics, audit, masking)."""
 import json
 import logging
 import os
@@ -15,15 +15,21 @@ from src.query.trace_lookup import lookup
 from src.policy import masking
 from src.audit.audit_log import AuditLog
 
+
 class JsonFormatter(logging.Formatter):
     def format(self, r):
-        return json.dumps({"ts": self.formatTime(r), "level": r.levelname, "msg": r.getMessage()})
+        return json.dumps({
+            "ts": self.formatTime(r),
+            "level": r.levelname,
+            "msg": r.getMessage(),
+        })
 
 
 handler = logging.StreamHandler()
 handler.setFormatter(JsonFormatter())
 logging.basicConfig(level=logging.INFO, handlers=[handler])
 log = logging.getLogger("collector")
+
 
 DB_PATH = os.getenv("SPAN_DB_PATH", "/data/spans.db")
 AUDIT_PATH = os.getenv("AUDIT_LOG_PATH", "/data/audit.jsonl")
@@ -34,7 +40,7 @@ MASK_RULES = masking.load_rules()
 REJECTED = {"total": 0, "by_reason": {}}
 
 
-def _reject(reason: str):
+def _reject(reason: str) -> None:
     REJECTED["total"] += 1
     REJECTED["by_reason"][reason] = REJECTED["by_reason"].get(reason, 0) + 1
 
@@ -107,11 +113,15 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/readyz":
             return self._send(200, {"ready": True})
         if parsed.path == "/metrics":
-            body = (
-                f"# TYPE spans_total counter\nspans_total {STORE.count()}\n"
-                f"# TYPE spans_rejected_total counter\n"
-                f"spans_rejected_total {REJECTED['total']}\n"
-            ).encode()
+            lines = [
+                "# TYPE spans_total counter",
+                f"spans_total {STORE.count()}",
+                "# TYPE spans_rejected_total counter",
+                f"spans_rejected_total {REJECTED['total']}",
+            ]
+            for reason, n in REJECTED["by_reason"].items():
+                lines.append(f'spans_rejected_total{{reason="{reason}"}} {n}')
+            body = ("\n".join(lines) + "\n").encode()
             return self._send_raw(200, body, "text/plain; version=0.0.4")
 
         if parsed.path == "/spans":
@@ -126,13 +136,18 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 return self._send(400, {"error": "invalid numeric parameter"})
 
+            role = self._role()
             AUDIT.append(
                 user=self.headers.get("X-User", "anonymous"),
-                role=self._role(),
+                role=role,
                 op="SEARCH",
-                params={"trace_id": trace_id, "service": service,
-                        "status": status, "limit": limit,
-                        "min_duration_ms": min_dur_ms},
+                params={
+                    "trace_id": trace_id,
+                    "service": service,
+                    "status": status,
+                    "limit": limit,
+                    "min_duration_ms": min_dur_ms,
+                },
             )
 
             if trace_id:
@@ -140,16 +155,27 @@ class Handler(BaseHTTPRequestHandler):
                     spans = lookup(STORE, trace_id)
                 except ValueError as e:
                     return self._send(400, {"error": str(e)})
-                return self._send(200, {"spans": spans, "total": len(spans), "truncated": False})
+                return self._send(200, {
+                    "spans": spans,
+                    "total": len(spans),
+                    "truncated": False,
+                })
 
             spans, total, truncated = STORE.search(
-                service=service, status=status, min_duration_ns=min_dur_ns, limit=limit,
+                service=service,
+                status=status,
+                min_duration_ns=min_dur_ns,
+                limit=limit,
             )
-            return self._send(200, {"spans": spans, "total": total, "truncated": truncated})
+            return self._send(200, {
+                "spans": spans,
+                "total": total,
+                "truncated": truncated,
+            })
 
         if parsed.path == "/audit/logs":
             role = self._role()
-            if role not in ("admin", "auditor"):
+            if role not in ("ADMIN", "AUDITOR"):
                 return self._send(403, {"error": "forbidden"})
             return self._send(200, {"logs": AUDIT.read_all()})
 

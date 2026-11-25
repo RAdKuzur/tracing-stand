@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+WORKDIR /app
+
+# зависимости рантайма + тестовые
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
+
+# код и тесты
+COPY app.py pytest.ini ./
+COPY src ./src
+COPY config ./config
+COPY tests ./tests
+
+# каталог для SQLite/аудита (в тестах не используется, но app.py его ждёт)
+RUN mkdir -p /data
+
+# по умолчанию запускаем pytest с покрытием и порогом 75%
+CMD ["pytest", "--cov=src", "--cov-report=term-missing", "--cov-fail-under=75"]

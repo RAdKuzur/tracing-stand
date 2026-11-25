@@ -1,0 +1,6 @@
+{
+  "ivanov_sre":     {"display_name": "Иванов (SRE)",          "role": "SRE"},
+  "petrov_dev":     {"display_name": "Петров (Разработчик)",  "role": "DEV"},
+  "sidorov_admin":  {"display_name": "Сидоров (Администратор)", "role": "ADMIN"},
+  "kuznetsov_audit":{"display_name": "Кузнецов (Аудитор)",    "role": "AUDITOR"}
+}
