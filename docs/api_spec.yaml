@@ -1,0 +1,363 @@
+openapi: 3.0.3
+
+info:
+  title: Trace Collector API
+  description: |
+    API сервиса распределённой трассировки (MVP). Принимает спаны в формате
+    OTLP/HTTP (JSON-представление), хранит их в SQLite, предоставляет поиск
+    по trace_id и фильтрам, журнал аудита и служебные эндпоинты
+    (healthz/readyz/metrics).
+  version: 0.1.0
+  contact:
+    name: Tracing Stand MVP
+
+servers:
+  - url: http://localhost:4318
+    description: Локальный запуск через docker-compose
+  - url: http://trace-collector:4318
+    description: Внутри сети tracing-net
+
+tags:
+  - name: ingest
+    description: Приём телеметрии
+  - name: query
+    description: Поиск и чтение спанов
+  - name: audit
+    description: Журнал аудита
+  - name: ops
+    description: Служебные эндпоинты
+
+paths:
+  /v1/traces:
+    post:
+      tags: [ingest]
+      summary: Приём спана (OTLP/HTTP, JSON)
+      description: |
+        Принимает один спан в JSON-представлении модели OpenTelemetry.
+        Валидирует обязательные поля, длину и hex-формат `trace_id`/`span_id`,
+        заголовок `traceparent` (если передан). Применяет PII-маскирование
+        перед записью в хранилище. Дедупликация — по первичному ключу
+        `(trace_id, span_id)`.
+      operationId: ingestSpan
+      parameters:
+        - name: traceparent
+          in: header
+          required: false
+          description: W3C Trace Context заголовок (формат `00-<32hex>-<16hex>-<2hex>`)
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'
+            example: 00-814c0dc5573cd646cdfb9f1a97a47f2c-5ae5b85246fa251d-01
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Span'
+      responses:
+        '200':
+          description: Спан принят или уже существует (дедупликация)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, duplicate]
+              example:
+                status: ok
+        '400':
+          description: Некорректный спан или невалидный traceparent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: 'trace_id must be 32 hex chars'
+        '404':
+          description: Неизвестный путь
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /spans:
+    get:
+      tags: [query]
+      summary: Поиск спанов с фильтрами
+      description: |
+        Возвращает список спанов, удовлетворяющих фильтрам. Если передан
+        `trace_id` — возвращает все спаны трейса (без применения `limit`,
+        до 100 000 записей). Иначе — применяет фильтры `service`, `status`,
+        `min_duration_ms` и `limit`. В ответе всегда есть поле `truncated`,
+        сигнализирующее об усечении выборки.
+      operationId: searchSpans
+      parameters:
+        - name: trace_id
+          in: query
+          required: false
+          description: Идентификатор трейса (32 hex-символа)
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{32}$'
+            example: 814c0dc5573cd646cdfb9f1a97a47f2c
+        - name: service
+          in: query
+          required: false
+          description: Имя сервиса
+          schema:
+            type: string
+            example: service-b
+        - name: status
+          in: query
+          required: false
+          description: Статус спана
+          schema:
+            type: string
+            enum: [OK, ERROR, UNSET]
+        - name: min_duration_ms
+          in: query
+          required: false
+          description: Минимальная длительность спана в миллисекундах
+          schema:
+            type: number
+            format: float
+            minimum: 0
+            example: 5
+        - name: limit
+          in: query
+          required: false
+          description: Максимальное количество возвращаемых спанов
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 1000
+        - name: X-User
+          in: header
+          required: false
+          description: Идентификатор пользователя для журнала аудита
+          schema:
+            type: string
+            default: anonymous
+        - name: X-Role
+          in: header
+          required: false
+          description: Роль пользователя для RBAC (учитывается на /audit/logs)
+          schema:
+            type: string
+            enum: [viewer, admin, auditor]
+            default: viewer
+      responses:
+        '200':
+          description: Список спанов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpanListResponse'
+        '400':
+          description: Некорректный параметр (например, нечисловой limit)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /audit/logs:
+    get:
+      tags: [audit]
+      summary: Журнал аудита действий пользователей
+      description: |
+        Возвращает журнал аудита в формате JSONL-строк, представленных
+        массивом. Доступен только при `X-Role: admin` или `X-Role: auditor`.
+        Каждая запись содержит хеш-цепочку (`hash` = SHA-256 от
+        предыдущего хеша и полезной нагрузки) — защита от модификации.
+      operationId: getAuditLogs
+      parameters:
+        - name: X-Role
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: [admin, auditor]
+      responses:
+        '200':
+          description: Массив записей аудита
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEntry'
+        '403':
+          description: Недостаточно прав
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /healthz:
+    get:
+      tags: [ops]
+      summary: Liveness probe
+      operationId: healthz
+      responses:
+        '200':
+          description: Сервис жив
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /readyz:
+    get:
+      tags: [ops]
+      summary: Readiness probe
+      operationId: readyz
+      responses:
+        '200':
+          description: Сервис готов принимать трафик (БД инициализирована)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                    example: true
+
+  /metrics:
+    get:
+      tags: [ops]
+      summary: Метрики в формате Prometheus
+      operationId: metrics
+      responses:
+        '200':
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # TYPE spans_total counter
+                  spans_total 42
+                  # TYPE spans_rejected_total counter
+                  spans_rejected_total 3
+
+components:
+  schemas:
+    Span:
+      type: object
+      required: [trace_id, span_id, name, service_name]
+      properties:
+        trace_id:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+          description: 16 байт, hex
+          example: 814c0dc5573cd646cdfb9f1a97a47f2c
+        span_id:
+          type: string
+          pattern: '^[0-9a-f]{16}$'
+          description: 8 байт, hex
+          example: 5ae5b85246fa251d
+        parent_span_id:
+          type: string
+          nullable: true
+          pattern: '^[0-9a-f]{16}$'
+          example: 39f2e4dcfea7f9fe
+        service_name:
+          type: string
+          example: service-b
+        name:
+          type: string
+          example: service-b-work
+        kind:
+          type: string
+          enum: [INTERNAL, SERVER, CLIENT, PRODUCER, CONSUMER]
+          default: INTERNAL
+        start_time_unix_nano:
+          type: integer
+          format: int64
+          example: 1795544129995150600
+        end_time_unix_nano:
+          type: integer
+          format: int64
+          example: 1795544130005482800
+        status:
+          type: string
+          enum: [OK, ERROR, UNSET]
+          default: UNSET
+        attributes:
+          type: object
+          additionalProperties: true
+          example:
+            http.method: GET
+            http.path: /work
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        links:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    SpanListResponse:
+      type: object
+      properties:
+        spans:
+          type: array
+          items:
+            $ref: '#/components/schemas/Span'
+        total:
+          type: integer
+          description: Общее количество записей, удовлетворяющих фильтру
+          example: 42
+        truncated:
+          type: boolean
+          description: true, если выборка усечена по limit
+          example: false
+
+    AuditEntry:
+      type: object
+      required: [ts, user, role, op, params, hash]
+      properties:
+        ts:
+          type: number
+          format: double
+          description: Unix timestamp (секунды)
+          example: 1795544130.123
+        user:
+          type: string
+          example: anonymous
+        role:
+          type: string
+          enum: [viewer, admin, auditor]
+        op:
+          type: string
+          enum: [SEARCH, VIEW, EXPORT, CONFIG_CHANGE, PII_ACCESS]
+          example: SEARCH
+        params:
+          type: object
+          additionalProperties: true
+        hash:
+          type: string
+          description: SHA-256 от (previous_hash + payload), защита от модификации
+          example: '9f2c8b...'
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: 'invalid traceparent'

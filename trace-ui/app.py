@@ -1,6 +1,6 @@
 """UI-сервер: статика + прокси к trace-collector."""
 import os
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse
 import requests
 
@@ -12,25 +12,18 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
 
-    def _send(self, code: int, payload: dict) -> None:
-        body = json.dumps(payload).encode()
-        try:
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
-            target = COLLECTOR + parsed.path[4:]  # /api/spans -> /spans
+            target = COLLECTOR + parsed.path[4:]
             if parsed.query:
                 target += "?" + parsed.query
+            headers = {
+                "X-Role": self.headers.get("X-Role", "viewer"),
+                "X-User": self.headers.get("X-User", "anonymous"),
+            }
             try:
-                r = requests.get(target, timeout=5)
+                r = requests.get(target, timeout=15, headers=headers)
                 self.send_response(r.status_code)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -41,7 +34,6 @@ class Handler(SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(f'{{"error":"{e}"}}'.encode())
             return
-        # всё остальное — статика
         return super().do_GET()
 
     def log_message(self, *args):
@@ -51,4 +43,4 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.getenv("UI_PORT", "8080"))
     print(f"UI listening on :{port}", flush=True)
-    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

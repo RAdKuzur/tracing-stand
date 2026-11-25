@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Span",
+  "type": "object",
+  "required": ["trace_id", "span_id", "name", "service_name"],
+  "properties": {
+    "trace_id":         {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "span_id":          {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+    "parent_span_id":   {"type": ["string", "null"], "pattern": "^[0-9a-f]{16}$"},
+    "service_name":     {"type": "string"},
+    "name":             {"type": "string"},
+    "kind":             {"type": "string", "enum": ["INTERNAL","SERVER","CLIENT","PRODUCER","CONSUMER"]},
+    "start_time_unix_nano": {"type": "integer"},
+    "end_time_unix_nano":   {"type": "integer"},
+    "status":           {"type": "string", "enum": ["OK","ERROR","UNSET"]},
+    "attributes":       {"type": "object"},
+    "events":           {"type": "array"},
+    "links":            {"type": "array"}
+  }
+}

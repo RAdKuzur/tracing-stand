@@ -1,0 +1,11 @@
+{
+  "drop_keys": [
+    "http.request.header.authorization",
+    "user.password"
+  ],
+  "mask_keys": [
+    "user.email",
+    "user.phone"
+  ],
+  "mask_value": "***"
+}
