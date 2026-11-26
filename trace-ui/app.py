@@ -15,8 +15,6 @@ from auth import (
 COLLECTOR = os.getenv("COLLECTOR_URL", "http://trace-collector:4318")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 USERS_PATH = os.getenv("USERS_PATH", "/app/config/users.json")
-
-# Публичные пути, доступные без сессии
 PUBLIC_PATHS = {"/login.html", "/login.css", "/login.js"}
 
 
@@ -31,8 +29,6 @@ USERS = load_users()
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
-
-    # ---------------- helpers ----------------
     def _session(self):
         cookies = parse_cookie(self.headers.get("Cookie"))
         return verify_session(cookies.get("session"))
@@ -64,8 +60,6 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-
-        # --- логин ---
         if parsed.path == "/api/login":
             body = self._read_body()
             try:

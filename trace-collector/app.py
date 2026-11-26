@@ -69,7 +69,6 @@ class Handler(BaseHTTPRequestHandler):
     def _role(self) -> str:
         return self.headers.get("X-Role", "viewer")
 
-    # ---------------- POST ----------------
     def do_POST(self):
         if self.path != "/v1/traces":
             return self._send(404, {"error": "not found"})

@@ -29,7 +29,6 @@ async function initList() {
   if (btn) btn.addEventListener("click", load);
 
   async function load() {
-    // собираем фильтры в query-string — фильтрация server-side по трейсам
     const params = new URLSearchParams();
     const fService = document.getElementById("f-service")?.value || "";
     const fStatus  = document.getElementById("f-status")?.value  || "";
@@ -92,8 +91,6 @@ async function initList() {
 function renderServiceMatrix(spans) {
   const container = document.getElementById("service-matrix");
   if (!container) return;
-
-  // 1) собираем все сервисы
   const services = Array.from(new Set(spans.map(s => s.service_name))).sort();
   if (services.length === 0) {
     container.innerHTML = '<div class="matrix-hint">Нет данных</div>';
