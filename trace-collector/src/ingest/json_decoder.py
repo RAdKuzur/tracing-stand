@@ -1,4 +1,3 @@
-"""Декодирование JSON-спанов в модель OpenTelemetry (с дефолтами)."""
 import json
 
 REQUIRED = ("trace_id", "span_id", "name", "service_name")

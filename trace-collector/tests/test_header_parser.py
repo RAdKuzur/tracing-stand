@@ -22,7 +22,6 @@ def test_valid_traceparent():
 ])
 def test_invalid_traceparent(bad):
     if bad == "00-814c0dc5573cd646cdfb9f1a97a47f2c-5ae5b85246fa251d-01 ":
-        # пробел по краям допускается (strip)
         assert parse_traceparent(bad) is not None
     else:
         assert parse_traceparent(bad) is None

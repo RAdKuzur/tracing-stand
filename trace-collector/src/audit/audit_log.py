@@ -1,4 +1,3 @@
-"""Журнал аудита с хеш-цепочкой (append-only)."""
 import hashlib
 import json
 import os

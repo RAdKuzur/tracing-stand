@@ -21,11 +21,9 @@ def collector_server(tmp_path_factory):
         "mask_value": "***",
     }))
 
-    # ВАЖНО: импорт после установки os.environ, без reload
     import app as collector_app
     from http.server import ThreadingHTTPServer
 
-    # свободный порт
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]

@@ -34,7 +34,6 @@ def test_search_by_status(tmp_store, sample_span):
 
 
 def test_search_by_min_duration(tmp_store, sample_span):
-    # sample_span: ~10.3 мс
     tmp_store.add(sample_span)
     _, total, _ = tmp_store.search(min_duration_ns=5_000_000)   # 5 мс
     assert total == 1

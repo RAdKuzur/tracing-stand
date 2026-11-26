@@ -1,11 +1,6 @@
-// Единый API-хелпер: все запросы идут через прокси trace-ui (/api/*)
 const api = (path) => fetch(`/api${path}`).then(r => r.json());
 
-// ============================================================
-// Страница списка трейсов (index.html)
-// ============================================================
 async function initList() {
-  // --- шапка: пользователь + выход ---
   fetch("/api/me")
     .then(r => {
       if (r.status === 401) {
@@ -48,7 +43,6 @@ async function initList() {
     const data = await api(`/spans?${params.toString()}`);
     const spans = data.spans || [];
 
-    // группируем спаны по trace_id, чтобы получить одну строку на трейс
     const byTrace = new Map();
     for (const s of spans) {
       if (!byTrace.has(s.trace_id)) byTrace.set(s.trace_id, []);
@@ -63,7 +57,6 @@ async function initList() {
       rows.push({ traceId, root, durationMs, hasError });
     }
 
-    // сортировка по длительности, самые медленные — сверху
     rows.sort((a, b) => b.durationMs - a.durationMs);
 
     tbody.innerHTML = rows.map(r => `
@@ -79,7 +72,6 @@ async function initList() {
       </tr>
     `).join("") || `<tr><td colspan="6">Нет трейсов</td></tr>`;
 
-    // плашка усечения — если сервер вернул truncated=true
     const oldNote = document.getElementById("truncated-note");
     if (oldNote) oldNote.remove();
     if (data.truncated) {
@@ -91,16 +83,12 @@ async function initList() {
       tbody.parentNode.insertBefore(note, tbody.nextSibling);
     }
 
-    // матрица обращений между сервисами
     renderServiceMatrix(spans);
   }
 
   await load();
 }
 
-// ============================================================
-// Матрица обращений между сервисами (0..1)
-// ============================================================
 function renderServiceMatrix(spans) {
   const container = document.getElementById("service-matrix");
   if (!container) return;
@@ -112,37 +100,31 @@ function renderServiceMatrix(spans) {
     return;
   }
 
-  // 2) индексируем спаны по span_id, чтобы найти родителя
   const byId = new Map(spans.map(s => [s.span_id, s]));
 
-  // 3) считаем переходы parent.service -> child.service
-  const counts = new Map(); // "a|b" -> count
+  const counts = new Map();
   for (const s of spans) {
     if (!s.parent_span_id) continue;
     const parent = byId.get(s.parent_span_id);
     if (!parent) continue;
-    if (parent.service_name === s.service_name) continue; // self не считаем
+    if (parent.service_name === s.service_name) continue;
     const key = `${parent.service_name}|${s.service_name}`;
     counts.set(key, (counts.get(key) || 0) + 1);
   }
 
-  // 4) нормируем по максимуму
   const max = Math.max(1, ...counts.values());
 
-  // 5) строим HTML-таблицу
   const n = services.length;
   const cellSize = 80;
   container.style.gridTemplateColumns = `120px repeat(${n}, ${cellSize}px)`;
 
   const parts = [];
 
-  // заголовок: пустой угол + имена столбцов
   parts.push('<div class="cell corner"></div>');
   for (const svc of services) {
     parts.push(`<div class="cell header">${svc}</div>`);
   }
 
-  // строки
   for (const from of services) {
     parts.push(`<div class="cell header">${from}</div>`);
     for (const to of services) {
@@ -166,9 +148,6 @@ function renderServiceMatrix(spans) {
   container.innerHTML = parts.join("");
 }
 
-// ============================================================
-// Страница детали трейса (trace.html) — waterfall
-// ============================================================
 async function initTrace() {
   const svg = document.getElementById("waterfall");
   if (!svg) return;
@@ -187,7 +166,6 @@ async function initTrace() {
     return;
   }
 
-  // --- строим дерево по parent_span_id ---
   const byId = new Map(spans.map(s => [s.span_id, s]));
   const children = new Map();
   for (const s of spans) {
@@ -195,12 +173,10 @@ async function initTrace() {
     if (!children.has(p)) children.set(p, []);
     children.get(p).push(s);
   }
-  // сортировка дочерних по времени старта — стабильный порядок
   for (const arr of children.values()) {
     arr.sort((a, b) => a.start_time_unix_nano - b.start_time_unix_nano);
   }
 
-  // --- обход в глубину ---
   const ordered = [];
   const depth = new Map();
   function walk(id, d) {
@@ -210,7 +186,6 @@ async function initTrace() {
   }
   for (const r of children.get("__root__") || []) walk(r.span_id, 0);
 
-  // --- границы трейса ---
   const t0 = Math.min(...spans.map(s => s.start_time_unix_nano));
   const t1 = Math.max(...spans.map(s => s.end_time_unix_nano));
   const total = t1 - t0 || 1;
@@ -220,7 +195,7 @@ async function initTrace() {
   const chartW = width - LABEL_W - PAD;
   svg.setAttribute("height", ordered.length * ROW + PAD * 2);
 
-  const SLOW_MS = 50;          // порог «медленного» спана
+  const SLOW_MS = 50;
   const selected = { id: null };
 
   function render() {
@@ -248,7 +223,6 @@ async function initTrace() {
 
   render();
 
-  // клик по спану — показать атрибуты
   svg.addEventListener("click", (e) => {
     const rect = e.target.closest("rect.span-bar");
     if (!rect) return;

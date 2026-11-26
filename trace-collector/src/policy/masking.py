@@ -1,4 +1,3 @@
-"""PII-маскирование атрибутов до записи в хранилище."""
 import json
 import os
 from typing import Dict, Any
@@ -15,7 +14,6 @@ def load_rules(path: str | None = None) -> Dict[str, Any]:
 
 
 def apply(span: dict, rules: Dict[str, Any]) -> dict:
-    """Возвращает копию спана с замаскированными атрибутами."""
     attrs = dict(span.get("attributes") or {})
     for key in list(attrs.keys()):
         if key in rules.get("drop_keys", []):

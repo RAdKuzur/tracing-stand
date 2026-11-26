@@ -1,4 +1,3 @@
-"""Аутентификация (cookie-сессия) и RBAC для trace-ui."""
 import base64
 import hashlib
 import hmac
@@ -9,10 +8,9 @@ from typing import Optional
 
 
 SECRET = os.getenv("SESSION_SECRET", "dev-secret-change-me").encode()
-SESSION_TTL = 8 * 3600  # 8 часов
+SESSION_TTL = 8 * 3600
 
 
-# Матрица прав: роль → набор действий
 ROLE_MATRIX = {
     "SRE":     {"spans:read", "audit:read", "pii:read"},
     "DEV":     {"spans:read"},
@@ -42,7 +40,6 @@ def _b64d(data: str) -> bytes:
 
 
 def make_session(username: str, role: str) -> str:
-    """Создаёт подписанный токен: base64(payload).base64(hmac)."""
     payload = json.dumps({
         "user": username, "role": role, "exp": int(time.time()) + SESSION_TTL,
     }).encode()
@@ -51,7 +48,6 @@ def make_session(username: str, role: str) -> str:
 
 
 def verify_session(token: Optional[str]) -> Optional[dict]:
-    """Возвращает {'user','role'} или None, если токен невалиден/просрочен."""
     if not token or "." not in token:
         return None
     try:

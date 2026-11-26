@@ -1,4 +1,3 @@
-"""SQLite-хранилище спанов с индексами, дедупликацией и retention."""
 import json
 import os
 import sqlite3
@@ -38,7 +37,6 @@ class SpanStore:
         self._db.commit()
 
     def add(self, span: dict) -> bool:
-        """Возвращает True, если спан добавлен; False — если дубликат."""
         with self._lock:
             try:
                 self._db.execute(
@@ -61,7 +59,6 @@ class SpanStore:
 
     def search(self, trace_id=None, service=None, status=None,
                min_duration_ns=None, limit=1000):
-        """Возвращает (spans, total, truncated)."""
         where, args = ["1=1"], []
         if trace_id:
             where.append("trace_id = ?"); args.append(trace_id)

@@ -1,4 +1,3 @@
-"""Разбор и валидация заголовка W3C traceparent."""
 import re
 
 TRACEPARENT_RE = re.compile(
@@ -6,7 +5,6 @@ TRACEPARENT_RE = re.compile(
 )
 
 def parse_traceparent(header: str) -> dict | None:
-    """Возвращает {'trace_id', 'span_id', 'flags'} или None при ошибке."""
     if not header:
         return None
     m = TRACEPARENT_RE.match(header.strip())

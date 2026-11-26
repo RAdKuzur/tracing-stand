@@ -4,7 +4,6 @@ WORKDIR /app
 COPY requirements.txt requirements-dev.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
 
-# код и тесты
 COPY auth.py pytest.ini ./
 COPY tests ./tests
 

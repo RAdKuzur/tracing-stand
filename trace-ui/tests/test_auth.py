@@ -42,7 +42,6 @@ def test_make_and_verify():
 def test_verify_tampered():
     token = make_session("ivanov_sre", "SRE")
     payload, sig = token.split(".")
-    # подменяем payload (роль) — подпись не сойдётся
     bad = payload[::-1] + "." + sig
     assert verify_session(bad) is None
 

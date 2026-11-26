@@ -1,4 +1,3 @@
-"""Поиск спанов по trace_id."""
 from src.storage.span_store import SpanStore
 
 

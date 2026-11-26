@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Экспресс-проверка стенда: поднять compose, загрузить фикстуру, сверить."""
 import argparse
 import json
 import os
@@ -17,7 +16,7 @@ UI = os.getenv("UI_URL", "http://localhost:8080")
 
 EXPECTED_TRACES = 5
 EXPECTED_SPANS = 10
-EXPECTED_ERROR_TRACES = 2  # 2222 (service-a) и 5555 (payment-service)
+EXPECTED_ERROR_TRACES = 2
 
 
 def log(msg: str) -> None:
@@ -105,7 +104,6 @@ def check_traces() -> None:
     spans = data["spans"]
     trace_ids = {s["trace_id"] for s in spans}
 
-    # фикстура + реальные спаны от Go-сервисов; проверяем, что все 5 трейсов фикстуры на месте
     fixture_ids = {
         "11111111111111111111111111111111",
         "22222222222222222222222222222222",
@@ -185,11 +183,9 @@ def check_metrics() -> None:
 
 def check_audit_rbac() -> None:
     log("checking /audit/logs RBAC")
-    # без роли — 403
     code, _ = http_get(f"{COLLECTOR}/audit/logs")
     if code != 403:
         fail(f"/audit/logs without X-Role returned {code}, expected 403")
-    # с AUDITOR — 200
     code, body = http_get(f"{COLLECTOR}/audit/logs", headers={"X-Role": "AUDITOR"})
     if code != 200:
         fail(f"/audit/logs as AUDITOR returned {code}")
@@ -209,7 +205,7 @@ def check_service_a() -> None:
     trace = json.loads(body)
     if "trace_id" not in trace:
         fail("service-a response missing trace_id")
-    time.sleep(0.5)  # дождаться асинхронной отправки спанов
+    time.sleep(0.5)
     tid = trace["trace_id"]
     code, body = http_get(f"{COLLECTOR}/spans?trace_id={tid}")
     if code != 200:

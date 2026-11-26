@@ -1,4 +1,3 @@
-"""UI-сервер: статика + прокси к trace-collector + аутентификация и RBAC."""
 import json
 import os
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
@@ -63,7 +62,6 @@ class Handler(SimpleHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         return self.rfile.read(n) if n else b""
 
-    # ---------------- POST ----------------
     def do_POST(self):
         parsed = urlparse(self.path)
 
@@ -95,7 +93,6 @@ class Handler(SimpleHTTPRequestHandler):
             }).encode())
             return
 
-        # --- выход ---
         if parsed.path == "/api/logout":
             self.send_response(200)
             self.send_header("Set-Cookie", "session=; Path=/; Max-Age=0")
@@ -106,15 +103,12 @@ class Handler(SimpleHTTPRequestHandler):
 
         return self._send_json(404, {"error": "not found"})
 
-    # ---------------- GET ----------------
     def do_GET(self):
         parsed = urlparse(self.path)
 
-        # 1) публичные страницы
         if parsed.path in PUBLIC_PATHS:
             return super().do_GET()
 
-        # 2) публичный список пользователей для формы логина
         if parsed.path == "/api/users":
             return self._send_json(200, {
                 "users": [
@@ -128,14 +122,12 @@ class Handler(SimpleHTTPRequestHandler):
                 ]
             })
 
-        # 3) всё остальное — только с валидной сессией
         session = self._session()
         if not session:
             if parsed.path.startswith("/api/"):
                 return self._send_json(401, {"error": "unauthorized"})
             return self._redirect("/login.html")
 
-        # 4) /api/me — ДО проксирования
         if parsed.path == "/api/me":
             return self._send_json(200, {
                 "user": session["user"],
@@ -143,7 +135,6 @@ class Handler(SimpleHTTPRequestHandler):
                 "role_label": ROLE_LABELS.get(session["role"], session["role"]),
             })
 
-        # 5) проксирование к коллектору с проверкой прав
         if parsed.path.startswith("/api/"):
             action, target = self._map_api(parsed.path)
             if action is None:
@@ -169,12 +160,10 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(502, {"error": str(e)})
             return
 
-        # 6) статика (index.html, trace.html, css, js)
         return super().do_GET()
 
     @staticmethod
     def _map_api(path: str) -> tuple:
-        """Возвращает (требуемое действие, путь в коллекторе)."""
         if path == "/api/spans":
             return "spans:read", "/spans"
         if path == "/api/audit/logs":

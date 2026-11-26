@@ -1,4 +1,3 @@
-"""HTTP-сервер OTLP-коллектора на :4318 (healthz, metrics, audit, masking)."""
 import json
 import logging
 import os
@@ -104,7 +103,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"status": "duplicate"})
         return self._send(200, {"status": "ok"})
 
-    # ---------------- GET ----------------
     def do_GET(self):
         parsed = urlparse(self.path)
 

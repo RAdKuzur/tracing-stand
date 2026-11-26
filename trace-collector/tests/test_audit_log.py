@@ -19,7 +19,6 @@ def test_hash_chain(tmp_path):
     a.append("u1", "SRE", "SEARCH", {})
     a.append("u2", "DEV", "SEARCH", {})
 
-    # после перезапуска последний hash восстанавливается из файла
     b = AuditLog(path)
     e3 = b.append("u3", "ADMIN", "CONFIG_CHANGE", {"k": "v"})
     logs = b.read_all()

@@ -40,9 +40,6 @@ tags:
   - name: ops
     description: Служебные эндпоинты (trace-collector)
 
-# ============================================================
-# trace-ui: аутентификация
-# ============================================================
 paths:
   /api/users:
     get:
@@ -156,9 +153,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-# ============================================================
-# trace-ui: прокси к коллектору (с RBAC)
-# ============================================================
   /api/spans:
     get:
       tags: [ui]
@@ -233,9 +227,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-# ============================================================
-# trace-collector: приём телеметрии
-# ============================================================
   /v1/traces:
     post:
       tags: [ingest]
@@ -290,9 +281,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-# ============================================================
-# trace-collector: поиск
-# ============================================================
   /spans:
     get:
       tags: [query]
@@ -339,9 +327,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-# ============================================================
-# trace-collector: аудит
-# ============================================================
   /audit/logs:
     get:
       tags: [audit]
@@ -377,9 +362,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-# ============================================================
-# trace-collector: служебные
-# ============================================================
   /healthz:
     get:
       tags: [ops]
@@ -433,9 +415,6 @@ paths:
                   spans_rejected_total 3
                   spans_rejected_total{reason="bad_content_type"} 1
 
-# ============================================================
-# components
-# ============================================================
 components:
   parameters:
     TraceId:
